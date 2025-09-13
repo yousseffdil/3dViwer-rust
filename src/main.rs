@@ -159,7 +159,7 @@ fn get_gradient_char_with_color(z: f32) -> String {
         z if z > 0.1 => "▓".bright_yellow().to_string(),     // Cerca - Amarillo brillante  
         z if z > -0.1 => "▒".green().to_string(),            // Medio - Verde
         z if z > -0.3 => "░".blue().to_string(),             // Lejos - Azul
-        _ => ".".magenta().to_string()                       // Muy lejos - Magenta
+        _ => "|".magenta().to_string()                       // Muy lejos - Magenta
     }
 }
 
@@ -229,7 +229,6 @@ fn render_wireframe(points: &[Point3D], faces: &[Face], width: i32, height: i32)
 }
 
 /// -------------------- MAIN --------------------
-
 fn main() {
     let args = Args::parse();
     let (mut vertices, faces) = load_obj(&args.model);
@@ -244,25 +243,42 @@ fn main() {
     let mut angle_y = 0.0;
     let mut angle_z = 0.0;
 
-    loop {
-        let projected: Vec<Point3D> = vertices
-            .iter()
-            .map(|v| {
-                let r1 = rotate_x(v, angle_x);
-                let r2 = rotate_y(&r1, angle_y);
-                let r3 = rotate_z(&r2, angle_z);
-                project(&r3, width, height, scale)
-            })
-            .collect();
-
-        render_wireframe(&projected, &faces, width, height);
-
-        if args.rotate {
-            angle_x += 0.8;
-            angle_y += 0.6;
-            angle_z += 0.4;
+    if args.rotate {
+        loop {
+            let projected: Vec<Point3D> = vertices
+                .iter()
+                .map(|v| {
+                    let r1 = rotate_x(v, angle_x);
+                    let r2 = rotate_y(&r1, angle_y);
+                    let r3 = rotate_z(&r2, angle_z);
+                    project(&r3, width, height, scale)
+                })
+                .collect();
+    
+            render_wireframe(&projected, &faces, width, height);
+    
+            if args.rotate {
+                angle_x += 0.8;
+                angle_y += 0.6;
+                angle_z += 0.4;
+            }
+    
+            thread::sleep(Duration::from_millis(16));
         }
+    }else{
+        let projected: Vec<Point3D> = vertices
+                .iter()
+                .map(|v| {
+                    let r1 = rotate_x(v, 0.0);
+                    let r2 = rotate_y(&r1, 10.0);
+                    let r3 = rotate_z(&r2, -3.0);
+                    project(&r3, width, height, scale)
+                })
+                .collect();
+    
+            render_wireframe(&projected, &faces, width, height);
+    
 
-        thread::sleep(Duration::from_millis(16));
     }
+   
 }
