@@ -101,9 +101,9 @@ fn normalize_model(vertices: &mut Vec<Vertex>) {
     }
 
     // centro del modelo
-    let center_x = (min_x + max_x) / 2.0;
-    let center_y = (min_y + max_y) / 2.0;
-    let center_z = (min_z + max_z) / 2.0;
+    let center_x = (min_x + max_x) / 1.5;
+    let center_y = (min_y + max_y) / 1.5;
+    let center_z = (min_z + max_z) / 1.5;
 
     // mayor dimensión para escalar
     let size_x = max_x - min_x;
@@ -156,7 +156,7 @@ fn load_obj(path: &str) -> (Vec<Vertex>, Vec<Face>) {
 fn get_gradient_char_with_color(z: f32) -> String {
     match z {
         z if z > 0.3 => "█".red().to_string(),      // Muy cerca - Blanco brillante
-        z if z > 0.1 => "▓".bright_yellow().to_string(),     // Cerca - Amarillo brillante  
+        z if z > 0.1 => "▓".yellow().to_string(),     // Cerca - Amarillo brillante  
         z if z > -0.1 => "▒".green().to_string(),            // Medio - Verde
         z if z > -0.3 => "░".blue().to_string(),             // Lejos - Azul
         _ => "|".magenta().to_string()                       // Muy lejos - Magenta
@@ -237,7 +237,7 @@ fn main() {
 
     let width = 80;  
     let height = 40; 
-    let scale = 30.0; 
+    let mut scale = 20.0; 
 
     let mut angle_x = 0.0;
     let mut angle_y = 0.0;
@@ -257,12 +257,15 @@ fn main() {
     
             render_wireframe(&projected, &faces, width, height);
     
-            if args.rotate {
-                angle_x += 0.8;
-                angle_y += 0.6;
-                angle_z += 0.4;
-            }
+            angle_x += 0.8;
+            angle_y += 0.6;
+            angle_z += 0.4;
     
+            // scale += 0.10;
+            // if scale > 40.0 {
+            //     scale = 20.0;
+            // }
+            
             thread::sleep(Duration::from_millis(16));
         }
     }else{
