@@ -154,7 +154,7 @@ fn draw_line(screen: &mut Vec<Vec<char>>, x0: i32, y0: i32, x1: i32, y1: i32) {
 
     loop {
         if y0 >= 0 && y0 < screen.len() as i32 && x0 >= 0 && x0 < screen[0].len() as i32 {
-            screen[y0 as usize][x0 as usize] = '·';
+            screen[y0 as usize][x0 as usize] = '█';
         }
 
         if x0 == x1 && y0 == y1 { break; }
