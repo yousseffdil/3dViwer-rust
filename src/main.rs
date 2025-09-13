@@ -29,12 +29,6 @@ struct Face {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct Point2D {
-    x: i32,
-    y: i32,
-}
-
-#[derive(Debug, Clone, Copy)]
 struct Point3D {
     x: i32,
     y: i32,
@@ -237,7 +231,9 @@ fn main() {
 
     let width = 80;  
     let height = 40; 
-    let mut scale = 20.0; 
+    let scale = 20.0; 
+    
+    //let mut scale = 20.0; 
 
     let mut angle_x = 0.0;
     let mut angle_y = 0.0;
@@ -265,7 +261,7 @@ fn main() {
             // if scale > 40.0 {
             //     scale = 20.0;
             // }
-            
+
             thread::sleep(Duration::from_millis(16));
         }
     }else{
