@@ -1,7 +1,9 @@
 use clap::Parser;
+use colored::*;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::f32::consts::PI;
+use std::{thread, time::Duration};
 
 /// Herramienta CLI para mostrar wireframes de modelos 3D en el terminal
 #[derive(Parser, Debug)]
@@ -25,10 +27,18 @@ struct Vertex {
 struct Face {
     vertices: Vec<usize>, 
 }
+
 #[derive(Debug, Clone, Copy)]
 struct Point2D {
     x: i32,
     y: i32,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Point3D {
+    x: i32,
+    y: i32,
+    z: f32,
 }
 
 /// -------------------- ROTACIONES --------------------
@@ -65,10 +75,10 @@ fn rotate_z(v: &Vertex, angle: f32) -> Vertex {
     }
 }
 
-fn project(v: &Vertex, width: i32, height: i32, scale: f32) -> Point2D {
+fn project(v: &Vertex, width: i32, height: i32, scale: f32) -> Point3D {
     let x = (v.x * scale + (width as f32 / 2.0)) as i32;
     let y = (v.y * scale + (height as f32 / 2.0)) as i32;
-    Point2D { x, y }
+    Point3D { x, y, z: v.z }
 }
 
 /// -------------------- NORMALIZACIÓN --------------------
@@ -142,19 +152,47 @@ fn load_obj(path: &str) -> (Vec<Vertex>, Vec<Face>) {
     (vertices, faces)
 }
 
-/// -------------------- DIBUJO --------------------
-fn draw_line(screen: &mut Vec<Vec<char>>, x0: i32, y0: i32, x1: i32, y1: i32) {
-    let mut x0 = x0;
-    let mut y0 = y0;
+/// -------------------- GRADIENTE CON COLORES --------------------
+fn get_gradient_char_with_color(z: f32) -> String {
+    match z {
+        z if z > 0.3 => "█".red().to_string(),      // Muy cerca - Blanco brillante
+        z if z > 0.1 => "▓".bright_yellow().to_string(),     // Cerca - Amarillo brillante  
+        z if z > -0.1 => "▒".green().to_string(),            // Medio - Verde
+        z if z > -0.3 => "░".blue().to_string(),             // Lejos - Azul
+        _ => ".".magenta().to_string()                       // Muy lejos - Magenta
+    }
+}
+
+// Interpolar entre dos valores z para obtener el carácter correcto
+fn lerp_z(z1: f32, z2: f32, t: f32) -> f32 {
+    z1 + (z2 - z1) * t
+}
+
+/// -------------------- DIBUJO CON COLORES --------------------
+fn draw_line_gradient(screen: &mut Vec<Vec<String>>, p1: Point3D, p2: Point3D) {
+    let mut x0 = p1.x;
+    let mut y0 = p1.y;
+    let z0 = p1.z;
+    let x1 = p2.x;
+    let y1 = p2.y;
+    let z1 = p2.z;
+
     let dx = (x1 - x0).abs();
     let sx = if x0 < x1 { 1 } else { -1 };
     let dy = -(y1 - y0).abs();
     let sy = if y0 < y1 { 1 } else { -1 };
     let mut err = dx + dy;
 
+    let total_distance = ((dx * dx + dy * dy) as f32).sqrt();
+
     loop {
         if y0 >= 0 && y0 < screen.len() as i32 && x0 >= 0 && x0 < screen[0].len() as i32 {
-            screen[y0 as usize][x0 as usize] = '█';
+            let current_distance = (((x0 - p1.x) * (x0 - p1.x) + (y0 - p1.y) * (y0 - p1.y)) as f32).sqrt();
+            let t = if total_distance > 0.0 { current_distance / total_distance } else { 0.0 };
+            
+            let current_z = lerp_z(z0, z1, t);
+            
+            screen[y0 as usize][x0 as usize] = get_gradient_char_with_color(current_z);
         }
 
         if x0 == x1 && y0 == y1 { break; }
@@ -170,16 +208,19 @@ fn draw_line(screen: &mut Vec<Vec<char>>, x0: i32, y0: i32, x1: i32, y1: i32) {
     }
 }
 
-fn render_wireframe(points: &[Point2D], faces: &[Face], width: i32, height: i32) {
-    let mut screen = vec![vec![' '; width as usize]; height as usize];
+fn render_wireframe(points: &[Point3D], faces: &[Face], width: i32, height: i32) {
+    let mut screen = vec![vec![" ".to_string(); width as usize]; height as usize];
 
     for face in faces {
         for i in 0..face.vertices.len() {
             let v1 = points[face.vertices[i]];
             let v2 = points[face.vertices[(i + 1) % face.vertices.len()]];
-            draw_line(&mut screen, v1.x, v1.y, v2.x, v2.y);
+            draw_line_gradient(&mut screen, v1, v2);
         }
     }
+
+    print!("\x1B[2J\x1B[H");
+    
 
     for row in screen {
         let line: String = row.into_iter().collect();
@@ -188,28 +229,23 @@ fn render_wireframe(points: &[Point2D], faces: &[Face], width: i32, height: i32)
 }
 
 /// -------------------- MAIN --------------------
-use std::{thread, time::Duration};
 
 fn main() {
     let args = Args::parse();
     let (mut vertices, faces) = load_obj(&args.model);
 
-    // normalizar el modelo
     normalize_model(&mut vertices);
 
-    let width = 160;  // antes 80
-    let height = 60;  // antes 40
-    let scale = 30.0; // ajusta para que encaje bien
-
+    let width = 80;  
+    let height = 40; 
+    let scale = 30.0; 
 
     let mut angle_x = 0.0;
     let mut angle_y = 0.0;
     let mut angle_z = 0.0;
 
     loop {
-        print!("\x1B[H"); // mover cursor a (0,0)
-
-        let projected: Vec<Point2D> = vertices
+        let projected: Vec<Point3D> = vertices
             .iter()
             .map(|v| {
                 let r1 = rotate_x(v, angle_x);
@@ -222,7 +258,7 @@ fn main() {
         render_wireframe(&projected, &faces, width, height);
 
         if args.rotate {
-            angle_x += 0.8; // más suave
+            angle_x += 0.8;
             angle_y += 0.6;
             angle_z += 0.4;
         }
