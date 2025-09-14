@@ -50,9 +50,7 @@ Ejemplo con animación:
 
 ## Ejemplo visual
 
-<video src="./sources/video.mp4" controls>
-</video>
-
+<https://github.com/user-attachments/assets/c31c2723-998c-4dd3-8214-72456be2bbf6>
 
 ## Estructura de proyecto
 
