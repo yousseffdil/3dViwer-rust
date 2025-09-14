@@ -30,8 +30,10 @@ Ejecuta el programa pasando un archivo `.obj`:
 ```bash
 ./showObj -m modelo.obj
 ```
+<video src="./sources/video.mp4" controls>
+</video>
 
-Opciones disponibles:
+## Opciones disponibles:
 
 ```
 Uso: showObj [OPTIONS] --model <MODELO>
