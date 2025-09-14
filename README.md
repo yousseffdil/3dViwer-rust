@@ -30,9 +30,6 @@ Ejecuta el programa pasando un archivo `.obj`:
 ```bash
 ./showObj -m modelo.obj
 ```
-<video src="./sources/video.mp4" controls>
-</video>
-
 ## Opciones disponibles:
 
 ```
@@ -53,7 +50,9 @@ Ejemplo con animación:
 
 ## Ejemplo visual
 
-*(Aquí puedes añadir una captura o GIF del terminal mostrando un modelo 3D)*
+<video src="./sources/video.mp4" controls>
+</video>
+
 
 ## Estructura de proyecto
 
