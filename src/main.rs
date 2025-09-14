@@ -229,8 +229,8 @@ fn main() {
 
     normalize_model(&mut vertices);
 
-    let width = 80;  
-    let height = 40; 
+    let width = 120;  
+    let height = 60; 
     let scale = 20.0; 
     
     //let mut scale = 20.0; 
@@ -269,8 +269,8 @@ fn main() {
                 .iter()
                 .map(|v| {
                     let r1 = rotate_x(v, 0.0);
-                    let r2 = rotate_y(&r1, 10.0);
-                    let r3 = rotate_z(&r2, -3.0);
+                    let r2 = rotate_y(&r1, 50.0);
+                    let r3 = rotate_z(&r2, 3.0);
                     project(&r3, width, height, scale)
                 })
                 .collect();
