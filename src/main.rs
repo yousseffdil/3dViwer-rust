@@ -20,11 +20,9 @@ struct Args {
     #[arg(long, default_value_t = false)]
     rotate: bool,
 
-    /// Si está presente, dibuja wireframe encima del relleno
     #[arg(short = 'w', long = "wireframe", default_value_t = false)]
     wireframe: bool,
 
-    /// Control con teclas de flecha
     #[arg(long, default_value_t = false)]
     arrows: bool,
 }
