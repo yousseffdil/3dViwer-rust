@@ -5,7 +5,6 @@ use std::io::{BufRead, BufReader};
 use std::f32::consts::PI;
 use std::{thread, time::Duration};
 
-/// Herramienta CLI para mostrar wireframes de modelos 3D en el terminal
 #[derive(Parser, Debug)]
 #[command(name = "showObj", version, about = "Muestra modelos .obj en terminal")]
 struct Args {
@@ -14,7 +13,11 @@ struct Args {
 
     #[arg(long, default_value_t = false)]
     rotate: bool,
+
+    #[arg(short = 'w', long = "wireframe", default_value_t = false)]
+    wireframe: bool,
 }
+
 
 #[derive(Debug)]
 struct Vertex {
@@ -149,11 +152,37 @@ fn load_obj(path: &str) -> (Vec<Vertex>, Vec<Face>) {
 /// -------------------- GRADIENTE CON COLORES --------------------
 fn get_gradient_char_with_color(z: f32) -> String {
     match z {
-        z if z > 0.3 => "█".red().to_string(),      // Muy cerca - Blanco brillante
-        z if z > 0.1 => "▓".yellow().to_string(),     // Cerca - Amarillo brillante  
-        z if z > -0.1 => "▒".green().to_string(),            // Medio - Verde
-        z if z > -0.3 => "░".blue().to_string(),             // Lejos - Azul
-        _ => "|".magenta().to_string()                       // Muy lejos - Magenta
+        z if z > 0.3 => "█".white().to_string(),         // Muy cerca - blanco sólido
+        z if z > 0.1 => "▓".bright_white().to_string(),  // Cerca - gris claro
+        z if z > -0.1 => "▒".bright_black().to_string(), // Medio - gris medio
+        z if z > -0.3 => "░".black().to_string(),        // Lejos - gris oscuro
+        _ => " ".to_string(),                            // Muy lejos - vacío (aire)
+    }
+}
+
+fn get_shade_from_normal(v0: Point3D, v1: Point3D, v2: Point3D) -> String {
+    let ux = v1.x - v0.x;
+    let uy = v1.y - v0.y;
+    let uz = v1.z - v0.z;
+    let vx = v2.x - v0.x;
+    let vy = v2.y - v0.y;
+    let vz = v2.z - v0.z;
+
+    // normal = u × v
+    let nx = uy * vz - uz * vy;
+    let ny = uz * vx - ux * vz;
+    let nz = ux * vy - uy * vx;
+
+    // luz (hacia la cámara)
+    let light = (0.0, 0.0, -1.0);
+    let dot = (nx * light.0 + ny * light.1 + nz * light.2)
+        / ((nx*nx + ny*ny + nz*nz).sqrt() + 1e-6);
+
+    match dot {
+        d if d > 0.7 => "█".white().to_string(),
+        d if d > 0.3 => "▓".bright_white().to_string(),
+        d if d > 0.0 => "▒".bright_black().to_string(),
+        _ => " ".to_string(),
     }
 }
 
@@ -221,6 +250,55 @@ fn render_wireframe(points: &[Point3D], faces: &[Face], width: i32, height: i32)
         println!("{}", line);
     }
 }
+fn render_filled(points: &[Point3D], faces: &[Face], width: i32, height: i32) {
+    let mut screen = vec![vec![" ".to_string(); width as usize]; height as usize];
+    let mut zbuffer = vec![vec![f32::MIN; width as usize]; height as usize];
+
+    for face in faces {
+        if face.vertices.len() < 3 {
+            continue;
+        }
+
+        // triangulación fan: (v0,v[i],v[i+1])
+        for i in 1..face.vertices.len() - 1 {
+            let v0 = points[face.vertices[0]];
+            let v1 = points[face.vertices[i]];
+            let v2 = points[face.vertices[i + 1]];
+
+            let min_x = v0.x.min(v1.x).min(v2.x).max(0) as i32;
+            let max_x = v0.x.max(v1.x).max(v2.x).min(width - 1) as i32;
+            let min_y = v0.y.min(v1.y).min(v2.y).max(0) as i32;
+            let max_y = v0.y.max(v1.y).max(v2.y).min(height - 1) as i32;
+
+            let area = ((v1.x - v0.x) * (v2.y - v0.y) - (v2.x - v0.x) * (v1.y - v0.y)) as f32;
+            if area.abs() < 1.0 { continue; }
+
+            for y in min_y..=max_y {
+                for x in min_x..=max_x {
+                    let w0 = ((v1.x - v0.x) as f32 * (y - v0.y) as f32 - (v1.y - v0.y) as f32 * (x - v0.x) as f32) / area;
+                    let w1 = ((v2.x - v1.x) as f32 * (y - v1.y) as f32 - (v2.y - v1.y) as f32 * (x - v1.x) as f32) / area;
+                    let w2 = ((v0.x - v2.x) as f32 * (y - v2.y) as f32 - (v0.y - v2.y) as f32 * (x - v2.x) as f32) / area;
+
+                    if w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0 {
+                        let z = (w0 * v0.z + w1 * v1.z + w2 * v2.z) / (w0 + w1 + w2);
+
+                        if z > zbuffer[y as usize][x as usize] {
+                            zbuffer[y as usize][x as usize] = z;
+                            screen[y as usize][x as usize] = get_gradient_char_with_color(z);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    print!("\x1B[2J\x1B[H");
+    for row in screen {
+        let line: String = row.into_iter().collect();
+        println!("{}", line);
+    }
+}
+
 
 /// -------------------- MAIN --------------------
 fn main() {
@@ -232,8 +310,6 @@ fn main() {
     let width = 120;  
     let height = 60; 
     let scale = 20.0; 
-    
-    //let mut scale = 20.0; 
 
     let mut angle_x = 0.0;
     let mut angle_y = 0.0;
@@ -250,34 +326,34 @@ fn main() {
                     project(&r3, width, height, scale)
                 })
                 .collect();
-    
-            render_wireframe(&projected, &faces, width, height);
-    
+
+            if args.wireframe {
+                render_wireframe(&projected, &faces, width, height);
+            } else {
+                render_filled(&projected, &faces, width, height);
+            }
+
             angle_x += 0.8;
             angle_y += 0.6;
             angle_z += 0.4;
-    
-            // scale += 0.10;
-            // if scale > 40.0 {
-            //     scale = 20.0;
-            // }
 
             thread::sleep(Duration::from_millis(16));
         }
-    }else{
+    } else {
         let projected: Vec<Point3D> = vertices
-                .iter()
-                .map(|v| {
-                    let r1 = rotate_x(v, 0.0);
-                    let r2 = rotate_y(&r1, 50.0);
-                    let r3 = rotate_z(&r2, 3.0);
-                    project(&r3, width, height, scale)
-                })
-                .collect();
-    
-            render_wireframe(&projected, &faces, width, height);
-    
+            .iter()
+            .map(|v| {
+                let r1 = rotate_x(v, 0.0);
+                let r2 = rotate_y(&r1, 50.0);
+                let r3 = rotate_z(&r2, 3.0);
+                project(&r3, width, height, scale)
+            })
+            .collect();
 
+        if args.wireframe {
+            render_wireframe(&projected, &faces, width, height);
+        } else {
+            render_filled(&projected, &faces, width, height);
+        }
     }
-   
 }
