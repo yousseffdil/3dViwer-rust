@@ -70,8 +70,8 @@ src/
 
 ## Ideas futuras
 
-- Soporte para zoom interactivo.
-- Control de cámara desde teclado.
+- Soporte para zoom interactivo. ❤️
+- Control de cámara desde teclado. ❤️
 - Más opciones de shading (sombreado por intensidad).
 - Exportar la animación a un GIF o video ASCII.
 
