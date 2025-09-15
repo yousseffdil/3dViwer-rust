@@ -163,12 +163,13 @@ fn get_shade_from_normal(v0: Point3D, v1: Point3D, v2: Point3D) -> String {
     let dot = (nx * light.0 + ny * light.1 + nz * light.2)
         / ((nx * nx + ny * ny + nz * nz).sqrt() + 1e-6);
 
-    match dot {
-        d if d > 0.2 => "█".red().to_string(),
-        d if d > 0.3 => "▓".bright_white().to_string(),
-        d if d > 0.0 => "▒".bright_green().to_string(),
-        _ => "·".bright_white().to_string(),
-    }
+        match dot {
+            z if z > 0.3 => "█".red().to_string(),      // Muy cerca - Blanco brillante
+            z if z > 0.1 => "▓".yellow().to_string(),     // Cerca - Amarillo brillante  
+            z if z > -0.1 => "▒".green().to_string(),            // Medio - Verde
+            z if z > -0.3 => "░".blue().to_string(),             // Lejos - Azul
+            _ => "·".magenta().to_string()                       // Muy lejos - Magenta
+        }
 }
 
 /// -------------------- DIBUJAR --------------------
