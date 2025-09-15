@@ -166,8 +166,8 @@ fn get_shade_from_normal(v0: Point3D, v1: Point3D, v2: Point3D) -> String {
     match dot {
         d if d > 0.2 => "█".red().to_string(),
         d if d > 0.3 => "▓".bright_white().to_string(),
-        d if d > 0.0 => "▒".bright_black().to_string(),
-        _ => "·".to_string(),
+        d if d > 0.0 => "▒".bright_green().to_string(),
+        _ => "·".bright_white().to_string(),
     }
 }
 
@@ -287,7 +287,7 @@ fn main() {
             angle_y += 0.6;
             angle_z += 0.4;
 
-            thread::sleep(Duration::from_millis(16));
+            thread::sleep(Duration::from_millis(60));
         }
     } else {
         let projected: Vec<Point3D> = vertices
