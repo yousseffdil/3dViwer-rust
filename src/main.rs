@@ -51,6 +51,7 @@ struct KeyboardState {
     angle_x: f32,
     angle_y: f32,
     angle_z: f32,
+    scale: f32,
 }
 
 impl KeyboardState {
@@ -59,6 +60,7 @@ impl KeyboardState {
             angle_x: 0.0,
             angle_y: 50.0,
             angle_z: 3.0,
+            scale: 20.0,
         }
     }
 
@@ -86,6 +88,17 @@ impl KeyboardState {
 
     fn rotate_counter_clockwise(&mut self) {
         self.angle_z -= 5.0;
+    }
+
+    fn zoom_in(&mut self) {
+        self.scale *= 1.1; // aumenta un 10%
+    }
+
+    fn zoom_out(&mut self) {
+        self.scale *= 0.9; // reduce un 10%
+        if self.scale < 1.0 {
+            self.scale = 1.0; // evita valores negativos o demasiado pequeños
+        }
     }
 }
 
@@ -214,12 +227,13 @@ fn get_shade_from_normal(v0: Point3D, v1: Point3D, v2: Point3D) -> String {
     let dot = (nx * light.0 + ny * light.1 + nz * light.2)
         / ((nx * nx + ny * ny + nz * nz).sqrt() + 1e-6);
 
+        
     match dot {
-        z if z > 0.3 => "█".red().to_string(),
-        z if z > 0.1 => "▓".yellow().to_string(),
-        z if z > -0.1 => "▒".green().to_string(),
-        z if z > -0.3 => "░".blue().to_string(),
-        _ => "·".magenta().to_string()
+        // z if z > 0.3 => "█".red().to_string(),
+        // z if z > 0.1 => "▓".yellow().to_string(),
+        // z if z > -0.1 => "▒".green().to_string(),
+         z if z > -0.3 => "░".blue().to_string(),
+        _ => "█".blue().to_string()
     }
 }
 
@@ -307,7 +321,7 @@ fn render(points: &[Point3D], faces: &[Face], width: i32, height: i32, wireframe
         println!("{}", row.join(""));
     }
     
-    println!("\n{}", "Controles: ← → ↑ ↓ para rotar | A/D para rotar en Z | ESC/Q para salir".bright_cyan());
+    println!("\n{}", "Controles: ← → ↑ ↓ para rotar | A/D para rotar en Z | +/- para zoom | ESC/Q para salir".bright_cyan());
     
     io::stdout().flush().unwrap();
 }
@@ -352,7 +366,7 @@ fn main() -> io::Result<()> {
                 let r1 = rotate_x(v, keyboard_state.angle_x);
                 let r2 = rotate_y(&r1, keyboard_state.angle_y);
                 let r3 = rotate_z(&r2, keyboard_state.angle_z);
-                project(&r3, width, height, scale)
+                project(&r3, width, height, keyboard_state.scale)
             })
             .collect();
         render(&projected, &faces, width, height, args.wireframe);
@@ -389,6 +403,14 @@ fn main() -> io::Result<()> {
                                 keyboard_state.rotate_clockwise();
                                 needs_render = true;
                             }
+                            KeyCode::Char('+') | KeyCode::Char('=') => {  // en algunos teclados "+" requiere shift
+                                keyboard_state.zoom_in();
+                                needs_render = true;
+                            }
+                            KeyCode::Char('-') => {
+                                keyboard_state.zoom_out();
+                                needs_render = true;
+                            }
                             _ => {}
                         }
 
@@ -399,7 +421,8 @@ fn main() -> io::Result<()> {
                                     let r1 = rotate_x(v, keyboard_state.angle_x);
                                     let r2 = rotate_y(&r1, keyboard_state.angle_y);
                                     let r3 = rotate_z(&r2, keyboard_state.angle_z);
-                                    project(&r3, width, height, scale)
+                                    // <-- CORRECCIÓN APLICADA AQUÍ
+                                    project(&r3, width, height, keyboard_state.scale)
                                 })
                                 .collect();
                             render(&projected, &faces, width, height, args.wireframe);
