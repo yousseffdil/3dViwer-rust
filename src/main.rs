@@ -1,7 +1,13 @@
 use clap::Parser;
 use colored::*;
+use crossterm::{
+    cursor,
+    event::{self, Event, KeyCode},
+    execute,
+    terminal::{self, ClearType},
+};
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::{self, BufRead, BufReader, Write};
 use std::f32::consts::PI;
 use std::{thread, time::Duration};
 
@@ -17,6 +23,10 @@ struct Args {
     /// Si está presente, dibuja wireframe encima del relleno
     #[arg(short = 'w', long = "wireframe", default_value_t = false)]
     wireframe: bool,
+
+    /// Control con teclas de flecha
+    #[arg(long, default_value_t = false)]
+    arrows: bool,
 }
 
 #[derive(Debug)]
@@ -36,6 +46,49 @@ struct Point3D {
     x: i32,
     y: i32,
     z: f32,
+}
+
+#[derive(Debug)]
+struct KeyboardState {
+    angle_x: f32,
+    angle_y: f32,
+    angle_z: f32,
+}
+
+impl KeyboardState {
+    fn new() -> Self {
+        Self {
+            angle_x: 0.0,
+            angle_y: 50.0,
+            angle_z: 3.0,
+        }
+    }
+
+    fn rotate_up(&mut self) {
+        self.angle_x -= 5.0;
+        self.angle_x = self.angle_x.clamp(-89.0, 89.0);
+    }
+
+    fn rotate_down(&mut self) {
+        self.angle_x += 5.0;
+        self.angle_x = self.angle_x.clamp(-89.0, 89.0);
+    }
+
+    fn rotate_left(&mut self) {
+        self.angle_y -= 5.0;
+    }
+
+    fn rotate_right(&mut self) {
+        self.angle_y += 5.0;
+    }
+
+    fn rotate_clockwise(&mut self) {
+        self.angle_z += 5.0;
+    }
+
+    fn rotate_counter_clockwise(&mut self) {
+        self.angle_z -= 5.0;
+    }
 }
 
 /// -------------------- ROTACIONES --------------------
@@ -163,13 +216,13 @@ fn get_shade_from_normal(v0: Point3D, v1: Point3D, v2: Point3D) -> String {
     let dot = (nx * light.0 + ny * light.1 + nz * light.2)
         / ((nx * nx + ny * ny + nz * nz).sqrt() + 1e-6);
 
-        match dot {
-            z if z > 0.3 => "█".red().to_string(),      // Muy cerca - Blanco brillante
-            z if z > 0.1 => "▓".yellow().to_string(),     // Cerca - Amarillo brillante  
-            z if z > -0.1 => "▒".green().to_string(),            // Medio - Verde
-            z if z > -0.3 => "░".blue().to_string(),             // Lejos - Azul
-            _ => "·".magenta().to_string()                       // Muy lejos - Magenta
-        }
+    match dot {
+        z if z > 0.3 => "█".red().to_string(),
+        z if z > 0.1 => "▓".yellow().to_string(),
+        z if z > -0.1 => "▒".green().to_string(),
+        z if z > -0.3 => "░".blue().to_string(),
+        _ => "·".magenta().to_string()
+    }
 }
 
 /// -------------------- DIBUJAR --------------------
@@ -250,14 +303,39 @@ fn render(points: &[Point3D], faces: &[Face], width: i32, height: i32, wireframe
         }
     }
 
-    print!("\x1B[2J\x1B[H");
+    execute!(io::stdout(), cursor::MoveTo(0, 0), terminal::Clear(ClearType::All)).unwrap();
+    
     for row in screen {
         println!("{}", row.join(""));
     }
+    
+    println!("\n{}", "Controles: ← → ↑ ↓ para rotar | A/D para rotar en Z | ESC/Q para salir".bright_cyan());
+    
+    io::stdout().flush().unwrap();
+}
+
+fn setup_terminal() -> io::Result<()> {
+    terminal::enable_raw_mode()?;
+    execute!(
+        io::stdout(),
+        cursor::Hide,
+        terminal::Clear(ClearType::All)
+    )?;
+    Ok(())
+}
+
+fn restore_terminal() -> io::Result<()> {
+    execute!(
+        io::stdout(),
+        cursor::Show,
+        terminal::Clear(ClearType::All)
+    )?;
+    terminal::disable_raw_mode()?;
+    Ok(())
 }
 
 /// -------------------- MAIN --------------------
-fn main() {
+fn main() -> io::Result<()> {
     let args = Args::parse();
     let (mut vertices, faces) = load_obj(&args.model);
     normalize_model(&mut vertices);
@@ -266,11 +344,81 @@ fn main() {
     let height = 60;
     let scale = 20.0;
 
-    let mut angle_x = 0.0;
-    let mut angle_y = 0.0;
-    let mut angle_z = 0.0;
+    if args.arrows {
+        setup_terminal()?;
+        let mut keyboard_state = KeyboardState::new();
+        
+        let projected: Vec<Point3D> = vertices
+            .iter()
+            .map(|v| {
+                let r1 = rotate_x(v, keyboard_state.angle_x);
+                let r2 = rotate_y(&r1, keyboard_state.angle_y);
+                let r3 = rotate_z(&r2, keyboard_state.angle_z);
+                project(&r3, width, height, scale)
+            })
+            .collect();
+        render(&projected, &faces, width, height, args.wireframe);
 
-    if args.rotate {
+        loop {
+            if event::poll(Duration::from_millis(50))? {
+                match event::read()? {
+                    Event::Key(key_event) => {
+                        let mut needs_render = false;
+                        
+                        match key_event.code {
+                            KeyCode::Char('q') | KeyCode::Esc => break,
+                            KeyCode::Up => {
+                                keyboard_state.rotate_up();
+                                needs_render = true;
+                            }
+                            KeyCode::Down => {
+                                keyboard_state.rotate_down();
+                                needs_render = true;
+                            }
+                            KeyCode::Left => {
+                                keyboard_state.rotate_left();
+                                needs_render = true;
+                            }
+                            KeyCode::Right => {
+                                keyboard_state.rotate_right();
+                                needs_render = true;
+                            }
+                            KeyCode::Char('a') | KeyCode::Char('A') => {
+                                keyboard_state.rotate_counter_clockwise();
+                                needs_render = true;
+                            }
+                            KeyCode::Char('d') | KeyCode::Char('D') => {
+                                keyboard_state.rotate_clockwise();
+                                needs_render = true;
+                            }
+                            _ => {}
+                        }
+
+                        if needs_render {
+                            let projected: Vec<Point3D> = vertices
+                                .iter()
+                                .map(|v| {
+                                    let r1 = rotate_x(v, keyboard_state.angle_x);
+                                    let r2 = rotate_y(&r1, keyboard_state.angle_y);
+                                    let r3 = rotate_z(&r2, keyboard_state.angle_z);
+                                    project(&r3, width, height, scale)
+                                })
+                                .collect();
+                            render(&projected, &faces, width, height, args.wireframe);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        restore_terminal()?;
+
+    } else if args.rotate {
+        let mut angle_x = 0.0;
+        let mut angle_y = 0.0;
+        let mut angle_z = 0.0;
+
         loop {
             let projected: Vec<Point3D> = vertices
                 .iter()
@@ -303,4 +451,6 @@ fn main() {
 
         render(&projected, &faces, width, height, args.wireframe);
     }
+
+    Ok(())
 }
