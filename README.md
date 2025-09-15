@@ -40,6 +40,8 @@ Opciones:
       --rotate           Habilita la animación con rotación
   -h, --help             Muestra la ayuda
   -V, --version          Muestra la versión
+  -w, --wireframe        Muestra el viwe en formato wireframe, Por default muestra un viewPort lleno
+  --arrows               Permite mover el modelo 3d con las flechas del teclado ( Controles: ← → ↑ ↓ para rotar | A/D para rotar en Z | +/- para zoom | ESC/Q para salir )
 ```
 
 Ejemplo con animación:
