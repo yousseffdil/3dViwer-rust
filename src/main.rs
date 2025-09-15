@@ -14,10 +14,10 @@ struct Args {
     #[arg(long, default_value_t = false)]
     rotate: bool,
 
+    /// Si está presente, dibuja wireframe encima del relleno
     #[arg(short = 'w', long = "wireframe", default_value_t = false)]
     wireframe: bool,
 }
-
 
 #[derive(Debug)]
 struct Vertex {
@@ -28,7 +28,7 @@ struct Vertex {
 
 #[derive(Debug)]
 struct Face {
-    vertices: Vec<usize>, 
+    vertices: Vec<usize>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -72,6 +72,7 @@ fn rotate_z(v: &Vertex, angle: f32) -> Vertex {
     }
 }
 
+/// Proyección ortográfica
 fn project(v: &Vertex, width: i32, height: i32, scale: f32) -> Point3D {
     let x = (v.x * scale + (width as f32 / 2.0)) as i32;
     let y = (v.y * scale + (height as f32 / 2.0)) as i32;
@@ -87,28 +88,24 @@ fn normalize_model(vertices: &mut Vec<Vertex>) {
     let mut min_z = f32::MAX;
     let mut max_z = f32::MIN;
 
-    // calcular bounding box
     for v in vertices.iter() {
-        if v.x < min_x { min_x = v.x; }
-        if v.x > max_x { max_x = v.x; }
-        if v.y < min_y { min_y = v.y; }
-        if v.y > max_y { max_y = v.y; }
-        if v.z < min_z { min_z = v.z; }
-        if v.z > max_z { max_z = v.z; }
+        min_x = min_x.min(v.x);
+        max_x = max_x.max(v.x);
+        min_y = min_y.min(v.y);
+        max_y = max_y.max(v.y);
+        min_z = min_z.min(v.z);
+        max_z = max_z.max(v.z);
     }
 
-    // centro del modelo
-    let center_x = (min_x + max_x) / 1.5;
-    let center_y = (min_y + max_y) / 1.5;
-    let center_z = (min_z + max_z) / 1.5;
+    let center_x = (min_x + max_x) / 2.0;
+    let center_y = (min_y + max_y) / 2.0;
+    let center_z = (min_z + max_z) / 2.0;
 
-    // mayor dimensión para escalar
     let size_x = max_x - min_x;
     let size_y = max_y - min_y;
     let size_z = max_z - min_z;
     let max_size = size_x.max(size_y).max(size_z);
 
-    // trasladar y escalar
     for v in vertices.iter_mut() {
         v.x = (v.x - center_x) / max_size;
         v.y = (v.y - center_y) / max_size;
@@ -140,7 +137,7 @@ fn load_obj(path: &str) -> (Vec<Vertex>, Vec<Face>) {
             for p in parts.iter().skip(1) {
                 let idx_str = p.split('/').next().unwrap();
                 let idx = idx_str.parse::<usize>().unwrap();
-                face_indices.push(idx - 1); 
+                face_indices.push(idx - 1);
             }
             faces.push(Face { vertices: face_indices });
         }
@@ -149,56 +146,37 @@ fn load_obj(path: &str) -> (Vec<Vertex>, Vec<Face>) {
     (vertices, faces)
 }
 
-/// -------------------- GRADIENTE CON COLORES --------------------
-fn get_gradient_char_with_color(z: f32) -> String {
-    match z {
-        z if z > 0.3 => "█".white().to_string(),         // Muy cerca - blanco sólido
-        z if z > 0.1 => "▓".bright_white().to_string(),  // Cerca - gris claro
-        z if z > -0.1 => "▒".bright_black().to_string(), // Medio - gris medio
-        z if z > -0.3 => "░".black().to_string(),        // Lejos - gris oscuro
-        _ => " ".to_string(),                            // Muy lejos - vacío (aire)
-    }
-}
-
+/// -------------------- SOMBREADO --------------------
 fn get_shade_from_normal(v0: Point3D, v1: Point3D, v2: Point3D) -> String {
-    let ux = v1.x - v0.x;
-    let uy = v1.y - v0.y;
+    let ux = (v1.x - v0.x) as f32;
+    let uy = (v1.y - v0.y) as f32;
     let uz = v1.z - v0.z;
-    let vx = v2.x - v0.x;
-    let vy = v2.y - v0.y;
+    let vx = (v2.x - v0.x) as f32;
+    let vy = (v2.y - v0.y) as f32;
     let vz = v2.z - v0.z;
 
-    // normal = u × v
     let nx = uy * vz - uz * vy;
     let ny = uz * vx - ux * vz;
     let nz = ux * vy - uy * vx;
 
-    // luz (hacia la cámara)
     let light = (0.0, 0.0, -1.0);
     let dot = (nx * light.0 + ny * light.1 + nz * light.2)
-        / ((nx*nx + ny*ny + nz*nz).sqrt() + 1e-6);
+        / ((nx * nx + ny * ny + nz * nz).sqrt() + 1e-6);
 
     match dot {
-        d if d > 0.7 => "█".white().to_string(),
+        d if d > 0.2 => "█".red().to_string(),
         d if d > 0.3 => "▓".bright_white().to_string(),
         d if d > 0.0 => "▒".bright_black().to_string(),
-        _ => " ".to_string(),
+        _ => "·".to_string(),
     }
 }
 
-// Interpolar entre dos valores z para obtener el carácter correcto
-fn lerp_z(z1: f32, z2: f32, t: f32) -> f32 {
-    z1 + (z2 - z1) * t
-}
-
-/// -------------------- DIBUJO CON COLORES --------------------
-fn draw_line_gradient(screen: &mut Vec<Vec<String>>, p1: Point3D, p2: Point3D) {
+/// -------------------- DIBUJAR --------------------
+fn draw_line(screen: &mut Vec<Vec<String>>, p1: Point3D, p2: Point3D) {
     let mut x0 = p1.x;
     let mut y0 = p1.y;
-    let z0 = p1.z;
     let x1 = p2.x;
     let y1 = p2.y;
-    let z1 = p2.z;
 
     let dx = (x1 - x0).abs();
     let sx = if x0 < x1 { 1 } else { -1 };
@@ -206,16 +184,9 @@ fn draw_line_gradient(screen: &mut Vec<Vec<String>>, p1: Point3D, p2: Point3D) {
     let sy = if y0 < y1 { 1 } else { -1 };
     let mut err = dx + dy;
 
-    let total_distance = ((dx * dx + dy * dy) as f32).sqrt();
-
     loop {
         if y0 >= 0 && y0 < screen.len() as i32 && x0 >= 0 && x0 < screen[0].len() as i32 {
-            let current_distance = (((x0 - p1.x) * (x0 - p1.x) + (y0 - p1.y) * (y0 - p1.y)) as f32).sqrt();
-            let t = if total_distance > 0.0 { current_distance / total_distance } else { 0.0 };
-            
-            let current_z = lerp_z(z0, z1, t);
-            
-            screen[y0 as usize][x0 as usize] = get_gradient_char_with_color(current_z);
+            screen[y0 as usize][x0 as usize] = "·".bright_black().to_string();
         }
 
         if x0 == x1 && y0 == y1 { break; }
@@ -231,35 +202,13 @@ fn draw_line_gradient(screen: &mut Vec<Vec<String>>, p1: Point3D, p2: Point3D) {
     }
 }
 
-fn render_wireframe(points: &[Point3D], faces: &[Face], width: i32, height: i32) {
-    let mut screen = vec![vec![" ".to_string(); width as usize]; height as usize];
-
-    for face in faces {
-        for i in 0..face.vertices.len() {
-            let v1 = points[face.vertices[i]];
-            let v2 = points[face.vertices[(i + 1) % face.vertices.len()]];
-            draw_line_gradient(&mut screen, v1, v2);
-        }
-    }
-
-    print!("\x1B[2J\x1B[H");
-    
-
-    for row in screen {
-        let line: String = row.into_iter().collect();
-        println!("{}", line);
-    }
-}
-fn render_filled(points: &[Point3D], faces: &[Face], width: i32, height: i32) {
+fn render(points: &[Point3D], faces: &[Face], width: i32, height: i32, wireframe: bool) {
     let mut screen = vec![vec![" ".to_string(); width as usize]; height as usize];
     let mut zbuffer = vec![vec![f32::MIN; width as usize]; height as usize];
 
     for face in faces {
-        if face.vertices.len() < 3 {
-            continue;
-        }
+        if face.vertices.len() < 3 { continue; }
 
-        // triangulación fan: (v0,v[i],v[i+1])
         for i in 1..face.vertices.len() - 1 {
             let v0 = points[face.vertices[0]];
             let v1 = points[face.vertices[i]];
@@ -284,32 +233,37 @@ fn render_filled(points: &[Point3D], faces: &[Face], width: i32, height: i32) {
 
                         if z > zbuffer[y as usize][x as usize] {
                             zbuffer[y as usize][x as usize] = z;
-                            screen[y as usize][x as usize] = get_gradient_char_with_color(z);
+                            screen[y as usize][x as usize] = get_shade_from_normal(v0, v1, v2);
                         }
                     }
                 }
+            }
+        }
+
+        if wireframe {
+            for i in 0..face.vertices.len() {
+                let v1 = points[face.vertices[i]];
+                let v2 = points[face.vertices[(i + 1) % face.vertices.len()]];
+                draw_line(&mut screen, v1, v2);
             }
         }
     }
 
     print!("\x1B[2J\x1B[H");
     for row in screen {
-        let line: String = row.into_iter().collect();
-        println!("{}", line);
+        println!("{}", row.join(""));
     }
 }
-
 
 /// -------------------- MAIN --------------------
 fn main() {
     let args = Args::parse();
     let (mut vertices, faces) = load_obj(&args.model);
-
     normalize_model(&mut vertices);
 
-    let width = 120;  
-    let height = 60; 
-    let scale = 20.0; 
+    let width = 120;
+    let height = 60;
+    let scale = 20.0;
 
     let mut angle_x = 0.0;
     let mut angle_y = 0.0;
@@ -327,11 +281,7 @@ fn main() {
                 })
                 .collect();
 
-            if args.wireframe {
-                render_wireframe(&projected, &faces, width, height);
-            } else {
-                render_filled(&projected, &faces, width, height);
-            }
+            render(&projected, &faces, width, height, args.wireframe);
 
             angle_x += 0.8;
             angle_y += 0.6;
@@ -350,10 +300,6 @@ fn main() {
             })
             .collect();
 
-        if args.wireframe {
-            render_wireframe(&projected, &faces, width, height);
-        } else {
-            render_filled(&projected, &faces, width, height);
-        }
+        render(&projected, &faces, width, height, args.wireframe);
     }
 }
