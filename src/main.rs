@@ -352,8 +352,10 @@ fn main() -> io::Result<()> {
     let (mut vertices, faces) = load_obj(&args.model);
     normalize_model(&mut vertices);
 
-    let width = 120;
-    let height = 60;
+    let (w, h) = terminal::size().unwrap();
+    let width = w as i32;
+    let height = h as i32;
+    
     let scale = 20.0;
 
     if args.arrows {
