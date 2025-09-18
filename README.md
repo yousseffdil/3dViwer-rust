@@ -52,8 +52,8 @@ Ejemplo con animación:
 
 ## Ejemplo visual
 
-<https://github.com/user-attachments/assets/c31c2723-998c-4dd3-8214-72456be2bbf6>
-
+[<https://github.com/user-attachments/assets/c31c2723-998c-4dd3-8214-72456be2bbf6>](url)
+[https://github.com/user-attachments/assets/5c096213-084e-4c09-8683-300c11a465f8](url)
 ## Estructura de proyecto
 
 ```
