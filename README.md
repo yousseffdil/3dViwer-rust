@@ -51,7 +51,7 @@ Ejemplo con animación:
 ```
 
 ## Ejemplo visual
-<https://github.com/user-attachments/assets/5c096213-084e-4c09-8683-300c11a465f8>
+<img src="https://github.com/user-attachments/assets/5c096213-084e-4c09-8683-300c11a465f8">
 ## Estructura de proyecto
 
 ```
