@@ -25,6 +25,9 @@ struct Args {
 
     #[arg(long, default_value_t = false)]
     arrows: bool,
+
+    #[arg(short = 'c', long = "color", default_value = "blue")]
+    color: String,
 }
 
 #[derive(Debug)]
@@ -211,7 +214,7 @@ fn load_obj(path: &str) -> (Vec<Vertex>, Vec<Face>) {
 }
 
 /// -------------------- SOMBREADO --------------------
-fn get_shade_from_normal(v0: Point3D, v1: Point3D, v2: Point3D) -> String {
+fn get_shade_from_normal(v0: Point3D, v1: Point3D, v2: Point3D, color: &str) -> String {
     let ux = (v1.x - v0.x) as f32;
     let uy = (v1.y - v0.y) as f32;
     let uz = v1.z - v0.z;
@@ -227,13 +230,61 @@ fn get_shade_from_normal(v0: Point3D, v1: Point3D, v2: Point3D) -> String {
     let dot = (nx * light.0 + ny * light.1 + nz * light.2)
         / ((nx * nx + ny * ny + nz * nz).sqrt() + 1e-6);
 
-        
-    match dot {
-        // z if z > 0.3 => "█".red().to_string(),
-        // z if z > 0.1 => "▓".yellow().to_string(),
-        // z if z > -0.1 => "▒".green().to_string(),
-         z if z > -0.3 => "░".blue().to_string(),
-        _ => "█".blue().to_string()
+
+                
+
+    let _char = "░";
+    let _default_char = "█";
+
+    match color.to_lowercase().as_str() {
+        "red" => {
+            match dot {
+                z if z > -0.3 => _char.red().to_string(),
+                _ => _default_char.red().to_string()
+            }
+        },
+        "green" => {
+            match dot {
+                z if z > -0.3 => _char.green().to_string(),
+                _ => _default_char.green().to_string()
+            }
+        },
+        "yellow" => {
+            match dot {
+                z if z > -0.3 => _char.yellow().to_string(),
+                _ => _default_char.yellow().to_string()
+            }
+        },
+        "magenta" | "purple" => {
+            match dot {
+                z if z > -0.3 => _char.magenta().to_string(),
+                _ => _default_char.magenta().to_string()
+            }
+        },
+        "cyan" => {
+            match dot {
+                z if z > -0.3 => _char.cyan().to_string(),
+                _ => _default_char.cyan().to_string()
+            }
+        },
+        "white" => {
+            match dot {
+                z if z > -0.3 => _char.white().to_string(),
+                _ => _default_char.white().to_string()
+            }
+        },
+        "black" => {
+            match dot {
+                z if z > -0.3 => _char.black().to_string(),
+                _ => _default_char.black().to_string()
+            }
+        },
+        _ => { // default: blue
+            match dot {
+                z if z > -0.3 => _char.blue().to_string(),
+                _ => _default_char.blue().to_string()
+            }
+        }
     }
 }
 
@@ -268,7 +319,7 @@ fn draw_line(screen: &mut Vec<Vec<String>>, p1: Point3D, p2: Point3D) {
     }
 }
 
-fn render(points: &[Point3D], faces: &[Face], width: i32, height: i32, wireframe: bool) {
+fn render(points: &[Point3D], faces: &[Face], width: i32, height: i32, wireframe: bool, color: &str) {
     let mut screen = vec![vec![" ".to_string(); width as usize]; height as usize];
     let mut zbuffer = vec![vec![f32::MIN; width as usize]; height as usize];
 
@@ -299,7 +350,7 @@ fn render(points: &[Point3D], faces: &[Face], width: i32, height: i32, wireframe
 
                         if z > zbuffer[y as usize][x as usize] {
                             zbuffer[y as usize][x as usize] = z;
-                            screen[y as usize][x as usize] = get_shade_from_normal(v0, v1, v2);
+                            screen[y as usize][x as usize] = get_shade_from_normal(v0, v1, v2, color);
                         }
                     }
                 }
@@ -371,7 +422,7 @@ fn main() -> io::Result<()> {
                 project(&r3, width, height, keyboard_state.scale)
             })
             .collect();
-        render(&projected, &faces, width, height, args.wireframe);
+        render(&projected, &faces, width, height, args.wireframe, &args.color);
 
         loop {
             if event::poll(Duration::from_millis(50))? {
@@ -405,7 +456,7 @@ fn main() -> io::Result<()> {
                                 keyboard_state.rotate_clockwise();
                                 needs_render = true;
                             }
-                            KeyCode::Char('+') | KeyCode::Char('=') => {  // en algunos teclados "+" requiere shift
+                            KeyCode::Char('+') | KeyCode::Char('=') => {
                                 keyboard_state.zoom_in();
                                 needs_render = true;
                             }
@@ -423,11 +474,10 @@ fn main() -> io::Result<()> {
                                     let r1 = rotate_x(v, keyboard_state.angle_x);
                                     let r2 = rotate_y(&r1, keyboard_state.angle_y);
                                     let r3 = rotate_z(&r2, keyboard_state.angle_z);
-                                    // <-- CORRECCIÓN APLICADA AQUÍ
                                     project(&r3, width, height, keyboard_state.scale)
                                 })
                                 .collect();
-                            render(&projected, &faces, width, height, args.wireframe);
+                            render(&projected, &faces, width, height, args.wireframe, &args.color);
                         }
                     }
                     _ => {}
@@ -453,7 +503,7 @@ fn main() -> io::Result<()> {
                 })
                 .collect();
 
-            render(&projected, &faces, width, height, args.wireframe);
+            render(&projected, &faces, width, height, args.wireframe, &args.color);
 
             angle_x += 0.8;
             angle_y += 0.6;
@@ -472,7 +522,7 @@ fn main() -> io::Result<()> {
             })
             .collect();
 
-        render(&projected, &faces, width, height, args.wireframe);
+        render(&projected, &faces, width, height, args.wireframe, &args.color);
     }
 
     Ok(())
