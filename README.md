@@ -76,11 +76,11 @@ src/
 - Exportar la animación a un GIF o video ASCII.
 
 ## Mejoras
-- Zero-Allocation
-- Buffer plano y uso de `char` en vez de `String`
-- Trigonometría precomputada.
-- Early reject en rasterizado.
-- Preparación para paralelismo con `rayon`
+- [ ] Zero-Allocation
+- [ ] Buffer plano y uso de `char` en vez de `String`
+- [ ] Trigonometría precomputada.
+- [ ] Early reject en rasterizado.
+- [ ] Preparación para paralelismo con `rayon`
 ## 📜 Licencia
 
 Este proyecto está bajo la licencia MIT.  
