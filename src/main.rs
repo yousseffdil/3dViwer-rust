@@ -320,6 +320,7 @@ fn draw_line(screen: &mut Vec<Vec<String>>, p1: Point3D, p2: Point3D) {
 }
 
 fn render(points: &[Point3D], faces: &[Face], width: i32, height: i32, wireframe: bool, color: &str) {
+    let args = Args::parse();
     let mut screen = vec![vec![" ".to_string(); width as usize]; height as usize];
     let mut zbuffer = vec![vec![f32::MIN; width as usize]; height as usize];
 
@@ -371,9 +372,11 @@ fn render(points: &[Point3D], faces: &[Face], width: i32, height: i32, wireframe
     for row in screen {
         println!("{}", row.join(""));
     }
-    
-    println!("\n{}", "Controles: ← → ↑ ↓ para rotar | A/D para rotar en Z | +/- para zoom | ESC/Q para salir".bright_cyan());
-    
+    if args.arrows
+    {
+        println!("\n{}", "Controles: ← → ↑ ↓ para rotar | A/D para rotar en Z | +/- para zoom | ESC/Q para salir".bright_cyan());
+    }
+
     io::stdout().flush().unwrap();
 }
 
