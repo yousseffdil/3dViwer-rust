@@ -332,10 +332,10 @@ fn render(points: &[Point3D], faces: &[Face], width: i32, height: i32, wireframe
             let v1 = points[face.vertices[i]];
             let v2 = points[face.vertices[i + 1]];
 
-            let min_x = v0.x.min(v1.x).min(v2.x).max(0) as i32;
-            let max_x = v0.x.max(v1.x).max(v2.x).min(width - 1) as i32;
-            let min_y = v0.y.min(v1.y).min(v2.y).max(0) as i32;
-            let max_y = v0.y.max(v1.y).max(v2.y).min(height - 1) as i32;
+            let min_x = v0.x.min(v1.x).min(v2.x).max(0);
+            let max_x = v0.x.max(v1.x).max(v2.x).min(width - 1);
+            let min_y = v0.y.min(v1.y).min(v2.y).max(0);
+            let max_y = v0.y.max(v1.y).max(v2.y).min(height - 1);
 
             let area = ((v1.x - v0.x) * (v2.y - v0.y) - (v2.x - v0.x) * (v1.y - v0.y)) as f32;
             if area.abs() < 1.0 { continue; }
