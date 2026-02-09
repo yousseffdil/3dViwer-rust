@@ -42,6 +42,12 @@ Opciones:
   -V, --version          Muestra la versión
   -w, --wireframe        Muestra el viwe en formato wireframe, Por default muestra un viewPort lleno
   --arrows               Permite mover el modelo 3d con las flechas del teclado ( Controles: ← → ↑ ↓ para rotar | A/D para rotar en Z | +/- para zoom | ESC/Q para salir )
+  -c, --color <COLOR>    Color del render (blue, red, green, yellow, magenta, cyan, white, black)
+  --shading <SHADING>    Modo de sombreado [posibles: flat, gradient]
+  --light-direction <DIR> Dirección de luz como "x,y,z" (por defecto 0,0,-1)
+  --cull-backfaces       Oculta caras que miran hacia atrás
+  --scale <SCALE>        Escala del modelo (por defecto 20)
+  --frame-delay-ms <MS>  Delay entre frames en rotación automática
 ```
 
 Ejemplo con animación:
