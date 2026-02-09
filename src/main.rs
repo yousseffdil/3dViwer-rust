@@ -1,4 +1,4 @@
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use colored::*;
 use crossterm::{
     cursor,
@@ -6,9 +6,9 @@ use crossterm::{
     execute,
     terminal::{self, ClearType},
 };
+use std::f32::consts::PI;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
-use std::f32::consts::PI;
 use std::{thread, time::Duration};
 
 #[derive(Parser, Debug)]
@@ -28,6 +28,21 @@ struct Args {
 
     #[arg(short = 'c', long = "color", default_value = "blue")]
     color: String,
+
+    #[arg(long, value_enum, default_value_t = ShadingMode::Gradient)]
+    shading: ShadingMode,
+
+    #[arg(long, default_value = "0,0,-1")]
+    light_direction: String,
+
+    #[arg(long, default_value_t = false)]
+    cull_backfaces: bool,
+
+    #[arg(long, default_value_t = 20.0)]
+    scale: f32,
+
+    #[arg(long, default_value_t = 60)]
+    frame_delay_ms: u64,
 }
 
 #[derive(Debug)]
@@ -47,6 +62,12 @@ struct Point3D {
     x: i32,
     y: i32,
     z: f32,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum ShadingMode {
+    Flat,
+    Gradient,
 }
 
 #[derive(Debug)]
@@ -105,6 +126,77 @@ impl KeyboardState {
     }
 }
 
+#[derive(Debug)]
+struct Model {
+    vertices: Vec<Vertex>,
+    faces: Vec<Face>,
+}
+
+impl Model {
+    fn normalize(&mut self) {
+        let mut min_x = f32::MAX;
+        let mut max_x = f32::MIN;
+        let mut min_y = f32::MAX;
+        let mut max_y = f32::MIN;
+        let mut min_z = f32::MAX;
+        let mut max_z = f32::MIN;
+
+        for v in self.vertices.iter() {
+            min_x = min_x.min(v.x);
+            max_x = max_x.max(v.x);
+            min_y = min_y.min(v.y);
+            max_y = max_y.max(v.y);
+            min_z = min_z.min(v.z);
+            max_z = max_z.max(v.z);
+        }
+
+        let center_x = (min_x + max_x) / 2.0;
+        let center_y = (min_y + max_y) / 2.0;
+        let center_z = (min_z + max_z) / 2.0;
+
+        let size_x = max_x - min_x;
+        let size_y = max_y - min_y;
+        let size_z = max_z - min_z;
+        let max_size = size_x.max(size_y).max(size_z);
+        if max_size <= f32::EPSILON {
+            return;
+        }
+
+        for v in self.vertices.iter_mut() {
+            v.x = (v.x - center_x) / max_size;
+            v.y = (v.y - center_y) / max_size;
+            v.z = (v.z - center_z) / max_size;
+        }
+    }
+}
+
+struct SceneConfig {
+    width: i32,
+    height: i32,
+    wireframe: bool,
+    color: String,
+    shading: ShadingMode,
+    light_direction: [f32; 3],
+    cull_backfaces: bool,
+    show_controls: bool,
+}
+
+impl SceneConfig {
+    fn from_args(args: &Args, width: i32, height: i32) -> Result<Self, String> {
+        let light_direction = parse_light_direction(&args.light_direction)?;
+        Ok(Self {
+            width,
+            height,
+            wireframe: args.wireframe,
+            color: args.color.clone(),
+            shading: args.shading,
+            light_direction,
+            cull_backfaces: args.cull_backfaces,
+            show_controls: args.arrows,
+        })
+    }
+}
+
 /// -------------------- ROTACIONES --------------------
 fn rotate_x(v: &Vertex, angle: f32) -> Vertex {
     let rad = angle * PI / 180.0;
@@ -146,145 +238,207 @@ fn project(v: &Vertex, width: i32, height: i32, scale: f32) -> Point3D {
     Point3D { x, y, z: v.z }
 }
 
-/// -------------------- NORMALIZACIÓN --------------------
-fn normalize_model(vertices: &mut Vec<Vertex>) {
-    let mut min_x = f32::MAX;
-    let mut max_x = f32::MIN;
-    let mut min_y = f32::MAX;
-    let mut max_y = f32::MIN;
-    let mut min_z = f32::MAX;
-    let mut max_z = f32::MIN;
-
-    for v in vertices.iter() {
-        min_x = min_x.min(v.x);
-        max_x = max_x.max(v.x);
-        min_y = min_y.min(v.y);
-        max_y = max_y.max(v.y);
-        min_z = min_z.min(v.z);
-        max_z = max_z.max(v.z);
-    }
-
-    let center_x = (min_x + max_x) / 2.0;
-    let center_y = (min_y + max_y) / 2.0;
-    let center_z = (min_z + max_z) / 2.0;
-
-    let size_x = max_x - min_x;
-    let size_y = max_y - min_y;
-    let size_z = max_z - min_z;
-    let max_size = size_x.max(size_y).max(size_z);
-
-    for v in vertices.iter_mut() {
-        v.x = (v.x - center_x) / max_size;
-        v.y = (v.y - center_y) / max_size;
-        v.z = (v.z - center_z) / max_size;
-    }
-}
-
 /// -------------------- CARGAR OBJ --------------------
-fn load_obj(path: &str) -> (Vec<Vertex>, Vec<Face>) {
-    let file = File::open(path).expect("Cant load the file");
+fn load_obj(path: &str) -> Result<Model, String> {
+    let file = File::open(path).map_err(|err| format!("Cant load the file: {err}"))?;
     let reader = BufReader::new(file);
 
     let mut vertices = Vec::new();
     let mut faces = Vec::new();
 
     for line in reader.lines() {
-        let line = line.expect("Unexpected error");
+        let line = line.map_err(|err| format!("Unexpected error: {err}"))?;
 
         if line.starts_with("v ") {
             let parts: Vec<&str> = line.split_whitespace().collect();
-            let x = parts[1].parse::<f32>().unwrap();
-            let y = parts[2].parse::<f32>().unwrap();
-            let z = parts[3].parse::<f32>().unwrap();
+            if parts.len() < 4 {
+                return Err(format!("Vertex inválido: {line}"));
+            }
+            let x = parts[1]
+                .parse::<f32>()
+                .map_err(|_| format!("Vertex inválido: {line}"))?;
+            let y = parts[2]
+                .parse::<f32>()
+                .map_err(|_| format!("Vertex inválido: {line}"))?;
+            let z = parts[3]
+                .parse::<f32>()
+                .map_err(|_| format!("Vertex inválido: {line}"))?;
             vertices.push(Vertex { x, y, z });
         } else if line.starts_with("f ") {
             let parts: Vec<&str> = line.split_whitespace().collect();
             let mut face_indices = Vec::new();
 
             for p in parts.iter().skip(1) {
-                let idx_str = p.split('/').next().unwrap();
-                let idx = idx_str.parse::<usize>().unwrap();
-                face_indices.push(idx - 1);
+                if let Some(idx_str) = p.split('/').next() {
+                    let idx = idx_str
+                        .parse::<usize>()
+                        .map_err(|_| format!("Face inválida: {line}"))?;
+                    if idx == 0 {
+                        return Err(format!("Face inválida: {line}"));
+                    }
+                    face_indices.push(idx - 1);
+                }
             }
-            faces.push(Face { vertices: face_indices });
+            if face_indices.len() >= 3 {
+                faces.push(Face {
+                    vertices: face_indices,
+                });
+            }
         }
     }
 
-    (vertices, faces)
+    Ok(Model { vertices, faces })
 }
 
 /// -------------------- SOMBREADO --------------------
-fn get_shade_from_normal(v0: Point3D, v1: Point3D, v2: Point3D, color: &str) -> String {
-    let ux = (v1.x - v0.x) as f32;
-    let uy = (v1.y - v0.y) as f32;
-    let uz = v1.z - v0.z;
-    let vx = (v2.x - v0.x) as f32;
-    let vy = (v2.y - v0.y) as f32;
-    let vz = v2.z - v0.z;
+struct AsciiRenderer;
 
-    let nx = uy * vz - uz * vy;
-    let ny = uz * vx - ux * vz;
-    let nz = ux * vy - uy * vx;
+impl AsciiRenderer {
+    fn colorize(color: &str, glyph: &str) -> String {
+        match color.to_lowercase().as_str() {
+            "red" => glyph.red().to_string(),
+            "green" => glyph.green().to_string(),
+            "yellow" => glyph.yellow().to_string(),
+            "magenta" | "purple" => glyph.magenta().to_string(),
+            "cyan" => glyph.cyan().to_string(),
+            "white" => glyph.white().to_string(),
+            "black" => glyph.black().to_string(),
+            _ => glyph.blue().to_string(),
+        }
+    }
 
-    let light = (0.0, 0.0, -1.0);
-    let dot = (nx * light.0 + ny * light.1 + nz * light.2)
-        / ((nx * nx + ny * ny + nz * nz).sqrt() + 1e-6);
+    fn shade_from_normal(
+        v0: Point3D,
+        v1: Point3D,
+        v2: Point3D,
+        shading: ShadingMode,
+        color: &str,
+        light_direction: [f32; 3],
+    ) -> String {
+        let ux = (v1.x - v0.x) as f32;
+        let uy = (v1.y - v0.y) as f32;
+        let uz = v1.z - v0.z;
+        let vx = (v2.x - v0.x) as f32;
+        let vy = (v2.y - v0.y) as f32;
+        let vz = v2.z - v0.z;
 
+        let nx = uy * vz - uz * vy;
+        let ny = uz * vx - ux * vz;
+        let nz = ux * vy - uy * vx;
 
-                
+        let dot = (nx * light_direction[0] + ny * light_direction[1] + nz * light_direction[2])
+            / ((nx * nx + ny * ny + nz * nz).sqrt() + 1e-6);
 
-    let _char = "░";
-    let _default_char = "█";
-
-    match color.to_lowercase().as_str() {
-        "red" => {
-            match dot {
-                z if z > -0.3 => _char.red().to_string(),
-                _ => _default_char.red().to_string()
+        match shading {
+            ShadingMode::Flat => {
+                let glyph = if dot > -0.3 { "░" } else { "█" };
+                Self::colorize(color, glyph)
             }
-        },
-        "green" => {
-            match dot {
-                z if z > -0.3 => _char.green().to_string(),
-                _ => _default_char.green().to_string()
-            }
-        },
-        "yellow" => {
-            match dot {
-                z if z > -0.3 => _char.yellow().to_string(),
-                _ => _default_char.yellow().to_string()
-            }
-        },
-        "magenta" | "purple" => {
-            match dot {
-                z if z > -0.3 => _char.magenta().to_string(),
-                _ => _default_char.magenta().to_string()
-            }
-        },
-        "cyan" => {
-            match dot {
-                z if z > -0.3 => _char.cyan().to_string(),
-                _ => _default_char.cyan().to_string()
-            }
-        },
-        "white" => {
-            match dot {
-                z if z > -0.3 => _char.white().to_string(),
-                _ => _default_char.white().to_string()
-            }
-        },
-        "black" => {
-            match dot {
-                z if z > -0.3 => _char.black().to_string(),
-                _ => _default_char.black().to_string()
-            }
-        },
-        _ => { // default: blue
-            match dot {
-                z if z > -0.3 => _char.blue().to_string(),
-                _ => _default_char.blue().to_string()
+            ShadingMode::Gradient => {
+                let levels = [" ", ".", ":", "-", "=", "+", "*", "#", "%", "@"];
+                let intensity = ((dot + 1.0) / 2.0).clamp(0.0, 1.0);
+                let idx = (intensity * (levels.len() - 1) as f32).round() as usize;
+                Self::colorize(color, levels[idx])
             }
         }
+    }
+
+    fn render(&self, points: &[Point3D], faces: &[Face], config: &SceneConfig) {
+        let mut screen = vec![vec![" ".to_string(); config.width as usize]; config.height as usize];
+        let mut zbuffer = vec![vec![f32::MIN; config.width as usize]; config.height as usize];
+
+        for face in faces {
+            if face.vertices.len() < 3 {
+                continue;
+            }
+
+            for i in 1..face.vertices.len() - 1 {
+                let v0 = points[face.vertices[0]];
+                let v1 = points[face.vertices[i]];
+                let v2 = points[face.vertices[i + 1]];
+
+                if config.cull_backfaces {
+                    let ux = (v1.x - v0.x) as f32;
+                    let uy = (v1.y - v0.y) as f32;
+                    let uz = v1.z - v0.z;
+                    let vx = (v2.x - v0.x) as f32;
+                    let vy = (v2.y - v0.y) as f32;
+                    let vz = v2.z - v0.z;
+                    let nz = ux * vy - uy * vx;
+                    if nz >= 0.0 {
+                        continue;
+                    }
+                }
+
+                let min_x = v0.x.min(v1.x).min(v2.x).max(0);
+                let max_x = v0.x.max(v1.x).max(v2.x).min(config.width - 1);
+                let min_y = v0.y.min(v1.y).min(v2.y).max(0);
+                let max_y = v0.y.max(v1.y).max(v2.y).min(config.height - 1);
+
+                let area = ((v1.x - v0.x) * (v2.y - v0.y) - (v2.x - v0.x) * (v1.y - v0.y)) as f32;
+                if area.abs() < 1.0 {
+                    continue;
+                }
+
+                for y in min_y..=max_y {
+                    for x in min_x..=max_x {
+                        let w0 = ((v1.x - v0.x) as f32 * (y - v0.y) as f32
+                            - (v1.y - v0.y) as f32 * (x - v0.x) as f32)
+                            / area;
+                        let w1 = ((v2.x - v1.x) as f32 * (y - v1.y) as f32
+                            - (v2.y - v1.y) as f32 * (x - v1.x) as f32)
+                            / area;
+                        let w2 = ((v0.x - v2.x) as f32 * (y - v2.y) as f32
+                            - (v0.y - v2.y) as f32 * (x - v2.x) as f32)
+                            / area;
+
+                        if w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0 {
+                            let z = (w0 * v0.z + w1 * v1.z + w2 * v2.z) / (w0 + w1 + w2);
+
+                            if z > zbuffer[y as usize][x as usize] {
+                                zbuffer[y as usize][x as usize] = z;
+                                screen[y as usize][x as usize] = Self::shade_from_normal(
+                                    v0,
+                                    v1,
+                                    v2,
+                                    config.shading,
+                                    &config.color,
+                                    config.light_direction,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+
+            if config.wireframe {
+                for i in 0..face.vertices.len() {
+                    let v1 = points[face.vertices[i]];
+                    let v2 = points[face.vertices[(i + 1) % face.vertices.len()]];
+                    draw_line(&mut screen, v1, v2);
+                }
+            }
+        }
+
+        execute!(
+            io::stdout(),
+            cursor::MoveTo(0, 0),
+            terminal::Clear(ClearType::All)
+        )
+        .unwrap();
+
+        for row in screen {
+            println!("{}", row.join(""));
+        }
+        if config.show_controls {
+            println!(
+                "\n{}",
+                "Controles: ← → ↑ ↓ para rotar | A/D para rotar en Z | +/- para zoom | ESC/Q para salir"
+                    .bright_cyan()
+            );
+        }
+
+        io::stdout().flush().unwrap();
     }
 }
 
@@ -306,7 +460,9 @@ fn draw_line(screen: &mut Vec<Vec<String>>, p1: Point3D, p2: Point3D) {
             screen[y0 as usize][x0 as usize] = "·".bright_black().to_string();
         }
 
-        if x0 == x1 && y0 == y1 { break; }
+        if x0 == x1 && y0 == y1 {
+            break;
+        }
         let e2 = 2 * err;
         if e2 >= dy {
             err += dy;
@@ -319,104 +475,73 @@ fn draw_line(screen: &mut Vec<Vec<String>>, p1: Point3D, p2: Point3D) {
     }
 }
 
-fn render(points: &[Point3D], faces: &[Face], width: i32, height: i32, wireframe: bool, color: &str) {
-    let args = Args::parse();
-    let mut screen = vec![vec![" ".to_string(); width as usize]; height as usize];
-    let mut zbuffer = vec![vec![f32::MIN; width as usize]; height as usize];
-
-    for face in faces {
-        if face.vertices.len() < 3 { continue; }
-
-        for i in 1..face.vertices.len() - 1 {
-            let v0 = points[face.vertices[0]];
-            let v1 = points[face.vertices[i]];
-            let v2 = points[face.vertices[i + 1]];
-
-            let min_x = v0.x.min(v1.x).min(v2.x).max(0);
-            let max_x = v0.x.max(v1.x).max(v2.x).min(width - 1);
-            let min_y = v0.y.min(v1.y).min(v2.y).max(0);
-            let max_y = v0.y.max(v1.y).max(v2.y).min(height - 1);
-
-            let area = ((v1.x - v0.x) * (v2.y - v0.y) - (v2.x - v0.x) * (v1.y - v0.y)) as f32;
-            if area.abs() < 1.0 { continue; }
-
-            for y in min_y..=max_y {
-                for x in min_x..=max_x {
-                    let w0 = ((v1.x - v0.x) as f32 * (y - v0.y) as f32 - (v1.y - v0.y) as f32 * (x - v0.x) as f32) / area;
-                    let w1 = ((v2.x - v1.x) as f32 * (y - v1.y) as f32 - (v2.y - v1.y) as f32 * (x - v1.x) as f32) / area;
-                    let w2 = ((v0.x - v2.x) as f32 * (y - v2.y) as f32 - (v0.y - v2.y) as f32 * (x - v2.x) as f32) / area;
-
-                    if w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0 {
-                        let z = (w0 * v0.z + w1 * v1.z + w2 * v2.z) / (w0 + w1 + w2);
-
-                        if z > zbuffer[y as usize][x as usize] {
-                            zbuffer[y as usize][x as usize] = z;
-                            screen[y as usize][x as usize] = get_shade_from_normal(v0, v1, v2, color);
-                        }
-                    }
-                }
-            }
-        }
-
-        if wireframe {
-            for i in 0..face.vertices.len() {
-                let v1 = points[face.vertices[i]];
-                let v2 = points[face.vertices[(i + 1) % face.vertices.len()]];
-                draw_line(&mut screen, v1, v2);
-            }
-        }
-    }
-
-    execute!(io::stdout(), cursor::MoveTo(0, 0), terminal::Clear(ClearType::All)).unwrap();
-    
-    for row in screen {
-        println!("{}", row.join(""));
-    }
-    if args.arrows
-    {
-        println!("\n{}", "Controles: ← → ↑ ↓ para rotar | A/D para rotar en Z | +/- para zoom | ESC/Q para salir".bright_cyan());
-    }
-
-    io::stdout().flush().unwrap();
-}
-
 fn setup_terminal() -> io::Result<()> {
     terminal::enable_raw_mode()?;
-    execute!(
-        io::stdout(),
-        cursor::Hide,
-        terminal::Clear(ClearType::All)
-    )?;
+    execute!(io::stdout(), cursor::Hide, terminal::Clear(ClearType::All))?;
     Ok(())
 }
 
 fn restore_terminal() -> io::Result<()> {
-    execute!(
-        io::stdout(),
-        cursor::Show,
-        terminal::Clear(ClearType::All)
-    )?;
+    execute!(io::stdout(), cursor::Show, terminal::Clear(ClearType::All))?;
     terminal::disable_raw_mode()?;
     Ok(())
+}
+
+fn parse_light_direction(value: &str) -> Result<[f32; 3], String> {
+    let parts: Vec<&str> = value.split(',').collect();
+    if parts.len() != 3 {
+        return Err("light-direction debe ser 'x,y,z'".to_string());
+    }
+    let x = parts[0]
+        .trim()
+        .parse::<f32>()
+        .map_err(|_| "light-direction inválido".to_string())?;
+    let y = parts[1]
+        .trim()
+        .parse::<f32>()
+        .map_err(|_| "light-direction inválido".to_string())?;
+    let z = parts[2]
+        .trim()
+        .parse::<f32>()
+        .map_err(|_| "light-direction inválido".to_string())?;
+    let length = (x * x + y * y + z * z).sqrt();
+    if length <= f32::EPSILON {
+        return Err("light-direction no puede ser un vector cero".to_string());
+    }
+    Ok([x / length, y / length, z / length])
 }
 
 /// -------------------- MAIN --------------------
 fn main() -> io::Result<()> {
     let args = Args::parse();
-    let (mut vertices, faces) = load_obj(&args.model);
-    normalize_model(&mut vertices);
+    let mut model = match load_obj(&args.model) {
+        Ok(model) => model,
+        Err(err) => {
+            eprintln!("{err}");
+            return Ok(());
+        }
+    };
+    model.normalize();
 
     let (w, h) = terminal::size().unwrap();
     let width = w as i32;
     let height = h as i32;
-    
-    let scale = 20.0;
+    let config = match SceneConfig::from_args(&args, width, height) {
+        Ok(config) => config,
+        Err(err) => {
+            eprintln!("{err}");
+            return Ok(());
+        }
+    };
+    let renderer = AsciiRenderer;
 
     if args.arrows {
         setup_terminal()?;
         let mut keyboard_state = KeyboardState::new();
-        
-        let projected: Vec<Point3D> = vertices
+        keyboard_state.scale = args.scale;
+
+        let projected: Vec<Point3D> = model
+            .vertices
             .iter()
             .map(|v| {
                 let r1 = rotate_x(v, keyboard_state.angle_x);
@@ -425,14 +550,14 @@ fn main() -> io::Result<()> {
                 project(&r3, width, height, keyboard_state.scale)
             })
             .collect();
-        render(&projected, &faces, width, height, args.wireframe, &args.color);
+        renderer.render(&projected, &model.faces, &config);
 
         loop {
             if event::poll(Duration::from_millis(50))? {
                 match event::read()? {
                     Event::Key(key_event) => {
                         let mut needs_render = false;
-                        
+
                         match key_event.code {
                             KeyCode::Char('q') | KeyCode::Esc => break,
                             KeyCode::Up => {
@@ -471,7 +596,8 @@ fn main() -> io::Result<()> {
                         }
 
                         if needs_render {
-                            let projected: Vec<Point3D> = vertices
+                            let projected: Vec<Point3D> = model
+                                .vertices
                                 .iter()
                                 .map(|v| {
                                     let r1 = rotate_x(v, keyboard_state.angle_x);
@@ -480,7 +606,7 @@ fn main() -> io::Result<()> {
                                     project(&r3, width, height, keyboard_state.scale)
                                 })
                                 .collect();
-                            render(&projected, &faces, width, height, args.wireframe, &args.color);
+                            renderer.render(&projected, &model.faces, &config);
                         }
                     }
                     _ => {}
@@ -489,43 +615,44 @@ fn main() -> io::Result<()> {
         }
 
         restore_terminal()?;
-
     } else if args.rotate {
         let mut angle_x = 0.0;
         let mut angle_y = 0.0;
         let mut angle_z = 0.0;
 
         loop {
-            let projected: Vec<Point3D> = vertices
+            let projected: Vec<Point3D> = model
+                .vertices
                 .iter()
                 .map(|v| {
                     let r1 = rotate_x(v, angle_x);
                     let r2 = rotate_y(&r1, angle_y);
                     let r3 = rotate_z(&r2, angle_z);
-                    project(&r3, width, height, scale)
+                    project(&r3, width, height, args.scale)
                 })
                 .collect();
 
-            render(&projected, &faces, width, height, args.wireframe, &args.color);
+            renderer.render(&projected, &model.faces, &config);
 
             angle_x += 0.8;
             angle_y += 0.6;
             angle_z += 0.4;
 
-            thread::sleep(Duration::from_millis(60));
+            thread::sleep(Duration::from_millis(args.frame_delay_ms));
         }
     } else {
-        let projected: Vec<Point3D> = vertices
+        let projected: Vec<Point3D> = model
+            .vertices
             .iter()
             .map(|v| {
                 let r1 = rotate_x(v, 0.0);
                 let r2 = rotate_y(&r1, 50.0);
                 let r3 = rotate_z(&r2, 3.0);
-                project(&r3, width, height, scale)
+                project(&r3, width, height, args.scale)
             })
             .collect();
 
-        render(&projected, &faces, width, height, args.wireframe, &args.color);
+        renderer.render(&projected, &model.faces, &config);
     }
 
     Ok(())
